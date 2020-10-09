@@ -8,6 +8,11 @@
 #include "settings.h"
 #include "display.h"
 
+#if defined(ARDUINO_T_Beam) && !defined(ARDUINO_T_Beam_V0_7)
+#include "power_management.h"
+PowerManagement powerManagement;
+#endif
+
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 hw_timer_t * timer = NULL;
 volatile uint secondsSinceLastTX = 0;
@@ -35,6 +40,20 @@ void IRAM_ATTR onTimer()
 void setup()
 {
 	Serial.begin(115200);
+
+#if defined(ARDUINO_T_Beam) && !defined(ARDUINO_T_Beam_V0_7)
+	Wire.begin(SDA, SCL);
+	if (!powerManagement.begin(Wire))
+	{
+		Serial.println("LoRa-APRS / Init / AXP192 Begin PASS");
+	} else {
+		Serial.println("LoRa-APRS / Init / AXP192 Begin FAIL");
+	}
+	powerManagement.activateLoRa();
+	powerManagement.activateOLED();
+	powerManagement.deactivateGPS();
+#endif
+
 	setup_display();
 	
 	delay(500);
