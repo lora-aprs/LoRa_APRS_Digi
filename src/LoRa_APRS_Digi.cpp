@@ -3,6 +3,10 @@
 #include <Arduino.h>
 #include <APRS-Decoder.h>
 #include <LoRa_APRS.h>
+#include <WiFiMulti.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <APRS-IS.h>
 
 #include "pins.h"
 #include "settings.h"
@@ -22,6 +26,12 @@ LoRa_APRS lora_aprs;
 
 String create_lat_aprs(double lat);
 String create_long_aprs(double lng);
+
+WiFiMulti WiFiMulti;
+String BeaconMsg;
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, 60*60);
+APRS_IS * aprs_is = 0;
 
 void setup_lora();
 
@@ -60,7 +70,12 @@ void setup()
 	Serial.println("[INFO] LoRa APRS Digi by OE5BPA (Peter Buchegger)");
 	show_display("OE5BPA", "LoRa APRS Digi", "by Peter Buchegger", 2000);
 
+	setup_wifi();
 	setup_lora();
+	setup_lora();
+	setup_ntp();
+	setup_aprs_is();
+
 
 	timer = timerBegin(0, 80, true);
 	timerAlarmWrite(timer, 1000000, true);
@@ -83,6 +98,24 @@ void loop()
 		send_update = true;
 	}
 
+	if(!aprs_is->connected())
+	{
+		Serial.print("[INFO] connecting to server: ");
+		Serial.print(APRSISHOST);
+		Serial.print(" on port: ");
+		Serial.println(APRSISPORT);
+		show_display("INFO", "Connecting to server");
+		if(!aprs_is->connect(APRSISHOST, APRSISPORT))
+		{
+			Serial.println("[ERROR] Connection failed.");
+			Serial.println("[INFO] Waiting 5 seconds before retrying...");
+			show_display("ERROR", "Server connection failed!", "waiting 5 sec");
+			delay(5000);
+			return;
+		}
+		Serial.println("[INFO] Connected to server!");
+	}
+
 	if(send_update)
 	{
 		send_update = false;
@@ -97,6 +130,7 @@ void loop()
 		Serial.print(data);
 		show_display(CALL, "<< Beaconing myself >>", data);
 		lora_aprs.sendMessage(msg);
+		aprs_is->sendMessage(msg);
 		Serial.println("finished TXing...");
 	}
 
@@ -138,6 +172,7 @@ void loop()
 			Serial.println(lora_aprs.getMessageSnr());
 			msg->setPath(String(CALL) + "*");
 			lora_aprs.sendMessage(msg);
+			aprs_is->sendMessage(msg->encode());
 			lastMessages.insert({secondsSinceStartup, msg});
 		}
 		else
@@ -211,4 +246,50 @@ String create_long_aprs(double lng)
 	sprintf(str, "%03d%05.2f%c", (int)lng, (lng - (double)((int)lng)) * 60.0, e_w);
 	String lng_str(str);
 	return lng_str;
+}
+
+void setup_ntp()
+{
+	timeClient.begin();
+	if(!timeClient.forceUpdate())
+	{
+		Serial.println("[WARN] NTP Client force update issue!");
+		show_display("WARN", "NTP Client force update issue!", 2000);
+	}
+	Serial.println("[INFO] NTP Client init done!");
+	show_display("INFO", "NTP Client init done!", 2000);
+}
+
+void setup_aprs_is()
+{
+	aprs_is = new APRS_IS(CALL, PASSKEY , "ESP32-APRS-IS", "0.1");
+
+	APRSMessage msg;
+    String lat = create_lat_aprs(BEACON_LAT);
+	String lng = create_long_aprs(BEACON_LNG);
+
+	msg.setSource(CALL);
+	msg.setDestination("APLG0");
+	msg.getAPRSBody()->setData(String("=") + lat + "I" + lng + "&" + BEACON_MSG);
+	BeaconMsg = msg.encode();
+}
+
+void setup_wifi()
+{
+	WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
+	WiFi.setHostname(CALL);
+	WiFiMulti.addAP(WIFINAME, WIFIPASS);
+	Serial.print("[INFO] Waiting for WiFi");
+	show_display("INFO", "Waiting for WiFi");
+	while(WiFiMulti.run() != WL_CONNECTED)
+	{
+		Serial.print(".");
+		show_display("INFO", "Waiting for WiFi", "....");
+		delay(500);
+	}
+	Serial.println("");
+	Serial.println("[INFO] WiFi connected");
+	Serial.print("[INFO] IP address: ");
+	Serial.println(WiFi.localIP());
+	show_display("INFO", "WiFi connected", "IP: ", WiFi.localIP().toString(), 2000);
 }
