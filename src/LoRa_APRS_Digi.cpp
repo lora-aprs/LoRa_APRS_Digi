@@ -34,6 +34,9 @@ NTPClient timeClient(ntpUDP, 60*60);
 APRS_IS * aprs_is = 0;
 
 void setup_lora();
+void setup_wifi();
+void setup_ntp();
+void setup_aprs_is();
 
 std::map<uint, std::shared_ptr<APRSMessage>> lastMessages;
 
